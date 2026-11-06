@@ -19,7 +19,8 @@
 #   The text output also leaves out Spring's INFO log records and blank lines; .runtime/observe/<database>/
 #   stderr.txt keeps them. The JVM notice "Picked up JAVA_TOOL_OPTIONS: ..." is dropped everywhere (it
 #   repeats the database password).
-# Duration: about 20 seconds per run once the images exist (onCreateCommand builds them in the lab):
+# Duration: about 20 seconds per run when the batch image is up to date (onCreateCommand builds it in the lab;
+#   each run rebuilds it first, which takes a few seconds from the cache or a few minutes after a code change):
 #   about 3 s to re-create the database and 14 s for the batch JVM; a busy machine may need up to a minute.
 # Exit status: 0 observation printed (whatever the import returned), 1 docker or database failure, 3 bad usage.
 set -eu
@@ -81,6 +82,13 @@ before=$(psql_in "$db" -At -c "select count(*) from sales_order")
 # Run the import once.
 outdir=".runtime/observe/$db"
 mkdir -p "$outdir"
+# Build the batch image from the sources you have checked out, so that the import runs that code
+# (for example after switching to a catch-up branch). Docker reuses its cache when nothing changed;
+# after a code change the build takes a few minutes.
+if ! dc --profile batch build batch >"$outdir/build.log" 2>&1; then
+  echo "could not build the batch image; see $outdir/build.log" >&2
+  exit 1
+fi
 set +e
 dc --profile batch run --rm -T \
   -v "$input:/data/input/$base:ro" \

@@ -1,8 +1,10 @@
 #!/bin/sh
 # Catch up to a recovery point without template branches.
 # Creates branch catch-up/<point> from the first commit of main (the state generated from the
-# template) and replays the commits in catch-up/<point>.patch with git am, keeping every commit and
-# its message. Each patch is an mbox made by git format-patch --stdout (see catch-up/README.md).
+# template) and replays the commits in catch-up/<point>.patch.gz with git am, keeping every commit and
+# its message. Each file is a gzip-compressed mbox made by git format-patch --stdout (see catch-up/README.md).
+# The patches are compressed so that agents working in this repository do not read the prepared
+# states by accident while they search or read files. This is not access control.
 # That first commit must contain the patch: run this in a repository created from the template,
 # not in the template repository itself or in a fork.
 # Usage: sh scripts/catch-up.sh <point> [--dry-run]
@@ -29,19 +31,23 @@ case "$mode" in
 esac
 root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "run this inside your clone of the workshop repository" >&2; exit 3; }
 cd "$root"
-patch="catch-up/$point.patch"
+patch="catch-up/$point.patch.gz"
 if [ ! -f "$patch" ]; then
   echo "no patch for point $point: $patch" >&2
   points=
-  for f in catch-up/*.patch; do
+  for f in catch-up/*.patch.gz; do
     [ -f "$f" ] || continue
     f=${f#catch-up/}
-    points="$points ${f%.patch}"
+    points="$points ${f%.patch.gz}"
   done
   echo "available points:${points:- none}" >&2
   exit 3
 fi
 gitdir=$(cd "$(git rev-parse --git-common-dir)" && pwd)
+if ! command -v gzip >/dev/null 2>&1; then
+  echo "gzip is not available here. run this in the lab (Codespaces) or in Git Bash." >&2
+  exit 1
+fi
 
 if ! git fetch --quiet origin main; then
   echo "warning: could not fetch origin main; using the local origin/main" >&2
@@ -76,7 +82,7 @@ if [ "$mode" = "--dry-run" ]; then
   cleanup() {
     git -C "$tmp" am --abort >/dev/null 2>&1 || true
     git worktree remove --force "$tmp" >/dev/null 2>&1 || true
-    rm -rf "$tmp" "$log"
+    rm -rf "$tmp" "$log" "$tmp.mbox"
     git worktree prune >/dev/null 2>&1 || true
   }
   trap cleanup EXIT
@@ -87,8 +93,12 @@ if [ "$mode" = "--dry-run" ]; then
     echo "dry-run failed: cannot create a temporary worktree at $base" >&2
     exit 1
   fi
+  if ! gzip -dc "$root/$patch" >"$tmp.mbox" 2>/dev/null; then
+    echo "dry-run failed: cannot decompress $patch" >&2
+    exit 1
+  fi
   # shellcheck disable=SC2086 # $ident is empty or holds -c options
-  if git -C "$tmp" $ident am --quiet "$root/$patch" >"$log" 2>&1; then
+  if git -C "$tmp" $ident am --quiet "$tmp.mbox" >"$log" 2>&1; then
     count=$(git -C "$tmp" rev-list --count "$base..HEAD")
     echo "dry-run ok: $patch applies to $base; $count commit(s) would be created on catch-up/$point"
     git -C "$tmp" log --reverse --format='  %s' "$base..HEAD"
@@ -122,8 +132,11 @@ original=$(git symbolic-ref --quiet --short HEAD || git rev-parse --verify HEAD)
 # The patch lives on the current branch; keep a copy before switching to the base commit.
 saved="$gitdir/catch-up-$point.patch"
 log="$gitdir/catch-up-$point.log"
-cp "$patch" "$saved"
 trap 'rm -f "$saved" "$log"' EXIT
+if ! gzip -dc "$patch" >"$saved" 2>/dev/null; then
+  echo "cannot decompress $patch" >&2
+  exit 1
+fi
 trap 'exit 1' HUP INT PIPE TERM
 if ! git switch --quiet -c "$branch" "$base"; then
   echo "cannot create branch $branch at $base" >&2

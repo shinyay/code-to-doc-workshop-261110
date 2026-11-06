@@ -1,6 +1,8 @@
 # Windows version of scripts/catch-up.sh. Same arguments, messages and exit codes.
 # Creates branch catch-up/<point> from the first commit of main and replays the commits in
-# catch-up/<point>.patch (an mbox made by git format-patch --stdout) with git am.
+# catch-up/<point>.patch.gz (a gzip-compressed mbox made by git format-patch --stdout) with git am.
+# The patches are compressed so that agents working in this repository do not read the prepared
+# states by accident while they search or read files. This is not access control.
 # That first commit must contain the patch: run this in a repository created from the template,
 # not in the template repository itself or in a fork.
 # Usage: pwsh scripts/catch-up.ps1 <point> [--dry-run]
@@ -11,6 +13,14 @@
 # Runs on PowerShell 7 (pwsh) and on Windows PowerShell 5.1.
 $ErrorActionPreference = 'Continue'
 function Fail([int]$code, [string]$message) { [Console]::Error.WriteLine($message); exit $code }
+function Expand-Gzip([string]$from, [string]$to) {
+  $in = [IO.File]::OpenRead($from)
+  try {
+    $gz = New-Object IO.Compression.GZipStream($in, [IO.Compression.CompressionMode]::Decompress)
+    $out = [IO.File]::Create($to)
+    try { $gz.CopyTo($out) } finally { $out.Dispose(); $gz.Dispose() }
+  } finally { $in.Dispose() }
+}
 function Show-Usage { Fail 3 "usage: pwsh scripts/catch-up.ps1 <point> [--dry-run]`n  points: 1-2 1-4 2-1 2-2 2-4 3-1 eval-no-doc drift-fixture" }
 if ($args.Count -lt 1 -or $args.Count -gt 2) { Show-Usage }
 $Point = [string]$args[0]
@@ -21,9 +31,9 @@ if ($Mode -ne '' -and $Mode -ne '--dry-run') { Show-Usage }
 $root = git rev-parse --show-toplevel 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $root) { Fail 3 'run this inside your clone of the workshop repository' }
 Set-Location -LiteralPath $root
-$patch = "catch-up/$Point.patch"
+$patch = "catch-up/$Point.patch.gz"
 if (-not (Test-Path -LiteralPath $patch -PathType Leaf)) {
-  $names = @(Get-ChildItem -LiteralPath 'catch-up' -Filter '*.patch' -ErrorAction SilentlyContinue | ForEach-Object { $_.BaseName })
+  $names = @(Get-ChildItem -LiteralPath 'catch-up' -Filter '*.patch.gz' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name -replace '\.patch\.gz$', '' })
   Fail 3 ("no patch for point ${Point}: $patch`navailable points: " + ($names -join ' '))
 }
 $gitdir = git rev-parse --git-common-dir
@@ -53,6 +63,7 @@ if (-not (git config --get user.email)) {
 
 if ($Mode -eq '--dry-run') {
   $tmp = Join-Path $gitdir "catch-up-dry-run-$PID"
+  $mbox = "$tmp.mbox"
   $code = 1
   try {
     # Forget trial worktrees whose folders an interrupted earlier run already removed.
@@ -61,7 +72,12 @@ if ($Mode -eq '--dry-run') {
     if ($LASTEXITCODE -ne 0) {
       [Console]::Error.WriteLine("dry-run failed: cannot create a temporary worktree at $base")
     } else {
-      $out = @(git -C $tmp @ident am --quiet (Join-Path $root $patch) 2>&1 | ForEach-Object { "$_" })
+      $expanded = $true
+      try { Expand-Gzip (Join-Path $root $patch) $mbox } catch { $expanded = $false }
+      if (-not $expanded) {
+        [Console]::Error.WriteLine("dry-run failed: cannot decompress $patch")
+      } else {
+      $out = @(git -C $tmp @ident am --quiet $mbox 2>&1 | ForEach-Object { "$_" })
       if ($LASTEXITCODE -eq 0) {
         $count = git -C $tmp rev-list --count "$base..HEAD"
         "dry-run ok: $patch applies to $base; $count commit(s) would be created on catch-up/$Point"
@@ -72,6 +88,7 @@ if ($Mode -eq '--dry-run') {
         $out | Where-Object { $_ -match '^(error|fatal):|^Patch failed at' } | ForEach-Object { [Console]::Error.WriteLine($_) }
         [Console]::Error.WriteLine("dry-run failed: $patch does not apply to $base")
       }
+      }
     }
   } finally {
     if (Test-Path -LiteralPath $tmp) {
@@ -80,6 +97,7 @@ if ($Mode -eq '--dry-run') {
       if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
     }
     git worktree prune 2>$null | Out-Null
+    Remove-Item -LiteralPath $mbox -Force -ErrorAction SilentlyContinue
   }
   exit $code
 }
@@ -97,7 +115,7 @@ $originalIsBranch = ($LASTEXITCODE -eq 0)
 if (-not $originalIsBranch) { $original = git rev-parse --verify HEAD }
 # The patch lives on the current branch; keep a copy before switching to the base commit.
 $saved = Join-Path $gitdir "catch-up-$Point.patch"
-Copy-Item -LiteralPath $patch -Destination $saved -Force
+try { Expand-Gzip (Join-Path $root $patch) $saved } catch { Remove-Item -LiteralPath $saved -Force -ErrorAction SilentlyContinue; Fail 1 "cannot decompress $patch" }
 try {
   git switch --quiet -c $branch $base
   if ($LASTEXITCODE -ne 0) { Fail 1 "cannot create branch $branch at $base" }

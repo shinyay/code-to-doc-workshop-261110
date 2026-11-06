@@ -1,6 +1,8 @@
 # 追いつき用の patch
 
-テンプレートのブランチでは、追いつき用の状態を配りません（テンプレートから作ったリポジトリでは、ブランチ同士の履歴がつながらず、PR を作れないため）。代わりに、復旧点ごとのコミットを patch として置きます。patch は `git format-patch --stdout` で作った mbox で、コミットとメッセージを1件ずつ持っています。
+テンプレートのブランチでは、追いつき用の状態を配りません（テンプレートから作ったリポジトリでは、ブランチ同士の履歴がつながらず、PR を作れないため）。代わりに、復旧点ごとのコミットを patch として置きます。patch は `git format-patch --stdout` で作った mbox を gzip で圧縮したファイル（`catch-up/<復旧点>.patch.gz`）で、コミットとメッセージを1件ずつ持っています。
+
+圧縮してあるのは、このリポジトリで作業するエージェントが、検索やファイルの読み取りのついでに、用意済みの状態（演習の答え）を読まないようにするためです。展開すれば読めるので、アクセス制御ではありません。
 
 `scripts/catch-up.sh`（Windows の手元では `scripts/catch-up.ps1`）は、参加者のリポジトリの `main` の最初のコミット（テンプレートから作った状態）からブランチ `catch-up/<復旧点>` を作り、patch のコミットを `git am` で順に当てます。
 
@@ -17,8 +19,9 @@ sh scripts/catch-up.sh 2-1 --dry-run   # 当てられるかと、作られるコ
 - `--dry-run` は、`.git` の中に一時的な worktree（基点のコミット、detached）を作り、`git am` を最後まで試してから消します。今のブランチもファイルも変えず、ブランチも残しません。成功すると `dry-run ok:` で始まる行と、作られるコミットの件名を表示します。
 - git の `user.email` が設定されていないときだけ、コミットした人（committer）を `catch-up@example.invalid` にします。作者（author）とメッセージは patch のとおりです。
 - 終了コード：0 は成功、1 は当てられない・未 commit の変更がある、3 は使い方の誤り・patch がない、です。
-- `main` の最初のコミットに `catch-up/<復旧点>.patch` がないと、終了コード1で止まります（`--dry-run` も同じ）。そのため、テンプレートのリポジトリそのものや fork では使えません。「Use this template」で作ったリポジトリで実行します。
+- `main` の最初のコミットに `catch-up/<復旧点>.patch.gz` がないと、終了コード1で止まります（`--dry-run` も同じ）。そのため、テンプレートのリポジトリそのものや fork では使えません。「Use this template」で作ったリポジトリで実行します。
 - 浅い clone（`git clone --depth`）でも、最初のコミットがわからないので止まります。`git fetch --unshallow origin` を実行してから使います。
+- `scripts/catch-up.sh` は `gzip` で patch を展開します。ラボ、Git Bash、macOS には入っています。`scripts/catch-up.ps1` は .NET の機能で展開するので、`gzip` は要りません。
 
 ## 復旧点と中身
 
@@ -43,13 +46,11 @@ patch は累積です。各復旧点の patch には、それより前の復旧�
 
 ## ラボで使うとき
 
-追いついたブランチを手元で push し、ラボでも同じブランチに切り替えます。ラボのバッチのイメージは、Codespace を作ったとき（`onCreateCommand`）のコードで作られています。`3-1` と `drift-fixture` は `OrderGroup.java` を変えるので、`sh scripts/observe-import.sh` や特性テストを実行する前に、イメージを作り直します。
+追いついたブランチを手元で push し、ラボでも同じブランチに切り替えます。
 
-```bash
-docker compose --profile batch build batch
-```
+`sh scripts/observe-import.sh`（特性テストもこれを使います）は、実行のたびに、今のコードからバッチのイメージを作り直してから動かします。コードが変わっていなければ Docker のキャッシュが使われ、数秒で終わります。`3-1` と `drift-fixture` は `OrderGroup.java` を変えるので、切り替えた後の最初の実行では Maven のビルドに数分かかります。ビルドの記録は `.runtime/observe/<データベース名>/build.log` に残ります。
 
-作り直さないと、古いコードのバッチが動きます。CHAR-ORD-001 はメッセージの文言を固定しないので、古いコードでも緑になります。
+文書やテストを変えても、イメージは作り直しません。`.dockerignore` で、イメージのビルドに使うファイルを Maven のプロジェクト（`pom.xml` と3つのモジュール）と Tomcat の設定（`runtime/`）に限っているためです。Web アプリ（`web`）は `OrderGroup.java` を使わないので、追いついた後も作り直す必要はありません。
 
 ## eval-no-doc で除いたもの
 
@@ -62,7 +63,7 @@ A と B の違いを Doc だけにするため、2-2 と同じコードとテス
 - `.github/skills/`（Code to Doc の skill 一式）
 - `docs/`（`docs/procedures/`、`docs/templates/`、`docs/as-is/`、`docs/adr/`）
 
-`.github/copilot-instructions.md` と `.github/instructions/` は、テンプレートにないので除くものはありません。コードとテストのほかに残る文章は、`README.md`、`fixtures/`（ISSUE-001 の本文を含む）、`.github/workflows/`（`doc-drift-guard.md` を含む）、`.github/code-to-doc-kit.export.json`、`catch-up/` です。`catch-up/` の patch には Doc の本文が入っています。A を実行するときは、エージェントが `catch-up/` を読まないようにします。
+`.github/copilot-instructions.md` と `.github/instructions/` は、テンプレートにないので除くものはありません。コードとテストのほかに残る文章は、`README.md`、`fixtures/`（ISSUE-001 の本文を含む）、`.github/workflows/`（`doc-drift-guard.md` を含む）、`.github/code-to-doc-kit.export.json`、`catch-up/` です。`catch-up/` の patch には Doc の本文が入っています。gzip で圧縮してあるので、エージェントの検索やファイルの読み取りには出てきませんが、展開すれば読めます。A を実行した後は、エージェントが `catch-up/` の patch を展開していないことを、セッションの記録で確かめます。
 
 ## drift-fixture
 
@@ -81,7 +82,11 @@ F-003 の引用4か所（採否表に1か所、As-Is 文書に3か所）が `lin
 
 ## patch の作り直し方
 
-基点は、テンプレートの `main` で patch と `scripts/catch-up.*` を変える前のコミット `b5b25103b087a6cdde04ca02aeab5c0ddcffe481` です。テンプレートから作ったリポジトリの最初のコミットは、`catch-up/` と `scripts/catch-up.*` を除いて、この基点と同じ中身になります。patch では `catch-up/` と `scripts/catch-up.*` を変えません。
+基点は、テンプレートの `main` で追いつきの仕組みを入れる前のコミット `b5b25103b087a6cdde04ca02aeab5c0ddcffe481` です。テンプレートから作ったリポジトリの最初のコミットは、次のファイルを除いて、この基点と同じ中身になります。patch では、これらのファイルを変えません。
+
+- `catch-up/`、`scripts/catch-up.sh`、`scripts/catch-up.ps1`（追いつきの仕組み）
+- `scripts/observe-import.sh`（実行のたびにバッチのイメージを作り直す）、`.dockerignore`（イメージのビルドに使うファイルを限る）
+- `.gitattributes`（`catch-up/*.patch.gz` を binary として扱う）
 
 テンプレートの `main` で、patch が変更・削除するファイルを変えたときは、patch を作り直します。`eval-no-doc` は `.github/` の skill なども削除するため、kit を更新したときも作り直しが必要です。
 
@@ -91,12 +96,12 @@ repo=$PWD
 # 別の worktree で、今の状態をブランチに戻す（1-2 → 1-4 → 2-1 → 2-2 → 2-4 → 3-1 は、前の復旧点の上に積む）
 git worktree add -b st/2-2 ../c2d-states "$base"
 cd ../c2d-states
-git am "$repo/catch-up/2-2.patch"
+gzip -dc "$repo/catch-up/2-2.patch.gz" | git am
 # 直して commit する。前の復旧点を直したら、後ろの復旧点も同じ順に積み直す
-git format-patch --stdout --no-signature --zero-commit "$base..st/2-2" > "$repo/catch-up/2-2.patch"
+git format-patch --stdout --no-signature --zero-commit "$base..st/2-2" | gzip -9 -n > "$repo/catch-up/2-2.patch.gz"
 ```
 
-Windows では Git Bash で実行します。PowerShell の `>` は、文字コードや改行を変えることがあるためです。
+Windows では Git Bash で実行します。PowerShell の `>` と `|` は、文字コードや改行を変えることがあるためです。`gzip -n` は元のファイル名と時刻を書き込まないので、同じ patch からは同じファイルができます。
 
 - `eval-no-doc`：基点からブランチを作り、`st/2-2` から `tests/characterization/order-import.characterization.test.mjs` と `wholesale-batch/src/test/java/jp/co/tsubame/wholesale/batch/OrderDuplicateAcceptanceTest.java` を取り出し、上の Doc を `git rm -r` で消して、1つのコミットにします。
 - `drift-fixture`：基点からブランチを作り、`st/2-4` の文書と CHAR-ORD-001 を1つ目のコミット、`OrderGroup.java` の挙動を変えない変更を2つ目のコミットにします。
