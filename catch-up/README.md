@@ -85,7 +85,7 @@ F-003 の引用4か所（採否表に1か所、As-Is 文書に3か所）が `lin
 基点は、テンプレートの `main` で追いつきの仕組みを入れる前のコミット `b5b25103b087a6cdde04ca02aeab5c0ddcffe481` です。テンプレートから作ったリポジトリの最初のコミットは、次のファイルを除いて、この基点と同じ中身になります。patch では、これらのファイルを変えません。
 
 - `catch-up/`、`scripts/catch-up.sh`、`scripts/catch-up.ps1`（追いつきの仕組み）
-- `scripts/observe-import.sh`（実行のたびにバッチのイメージを作り直す）、`.dockerignore`（イメージのビルドに使うファイルを限る）
+- `scripts/observe-import.sh`（実行のたびにバッチのイメージを作り直す）、`.dockerignore`（イメージのビルドに使うファイルを限る）、`compose.yml`（データベースの準備ができたことを TCP の接続で確かめる）
 - `.gitattributes`（`catch-up/*.patch.gz` を binary として扱う）
 
 テンプレートの `main` で、patch が変更・削除するファイルを変えたときは、patch を作り直します。`eval-no-doc` は `.github/` の skill なども削除するため、kit を更新したときも作り直しが必要です。

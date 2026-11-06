@@ -10,7 +10,9 @@ services:
       - wholesale-db:/var/lib/postgresql/data
       - ./database:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wholesale -d wholesale"]
+      # Check over TCP: on first start, the image initializes the database with a temporary server
+      # that listens only on the Unix socket, so a socket check would pass before that server stops.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U wholesale -d wholesale"]
       interval: 3s
       timeout: 3s
       retries: 30
