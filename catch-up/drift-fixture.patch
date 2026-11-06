@@ -1,0 +1,293 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: shinyay <shinyay@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 15:45:13 +0900
+Subject: [PATCH 1/2] 4-1 fixture: As-Is documents at the end of chapter 2
+
+Findings, the As-Is module map, OBS-001, ADR-0001, the AGENTS.md rule
+and CHAR-ORD-001 as in recovery point 2-4. ACC-001 stays a skeleton so
+that the build stays green.
+
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
+---
+ AGENTS.md                                     |  1 +
+ docs/adr/0001-order-import-validation.md      | 54 ++++++++++++
+ docs/as-is/findings/order-import.md           | 19 +++++
+ docs/as-is/observations.md                    |  2 +-
+ docs/as-is/order-import-module-map.md         | 83 +++++++++++++++++++
+ .../order-import.characterization.test.mjs    | 14 +++-
+ 6 files changed, 168 insertions(+), 5 deletions(-)
+ create mode 100644 docs/adr/0001-order-import-validation.md
+ create mode 100644 docs/as-is/findings/order-import.md
+ create mode 100644 docs/as-is/order-import-module-map.md
+
+diff --git a/AGENTS.md b/AGENTS.md
+index bd7ce1a..adf110e 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -21,6 +21,7 @@ This repository is being modernized with evidence-backed Code to Doc and Doc to
+ 4. Never invent evidence. Cite code as `[[source:path#Lstart-Lend]]` and put unsupported points in `## Unknowns`.
+ 5. Never fill ADR decisions, adopt or reject findings, mark unknowns as `resolved` or `accepted`, approve on behalf of people, mark documents as `reviewed`, or write the document frontmatter (`owner`, `sourceRevision`, `reviewedAt`, `reviewBy`). These decisions are written by people, in the repository, so that they can be reviewed in pull requests.
+ 6. Keep each pull request inside the scope of its issue or ADR.
++7. ADR-0001: keep the error code `orderImport.duplicateProduct` and the message prefix `Product occurs more than once: <product code>`. Do not edit CHAR-ORD-001 in `tests/characterization/order-import.characterization.test.mjs`.
+ 
+ ## Commands
+ 
+diff --git a/docs/adr/0001-order-import-validation.md b/docs/adr/0001-order-import-validation.md
+new file mode 100644
+index 0000000..b37e47d
+--- /dev/null
++++ b/docs/adr/0001-order-import-validation.md
+@@ -0,0 +1,54 @@
++---
++owner: "講師（追いつき用の例）"  # person or team responsible for this document (people fill it)
++sourceRevision: "b5b25103b087a6cdde04ca02aeab5c0ddcffe481"  # commit the evidence was last checked against (people fill it at review)
++reviewedAt: "2026-11-06"  # YYYY-MM-DD of the last human review
++reviewBy: "2027-02-06"  # YYYY-MM-DD by which people re-read it, even without drift
++---
++# ADR-0001: 受注 CSV の取り込みで、重複した商品行をどう扱うか
++
++- Status: accepted
++- Scope: 受注 CSV の取り込み（`import-orders`）で、同じ `external_key` のグループに同じ商品コードが2回以上現れたときの扱い
++- Related As-Is documents: `docs/as-is/order-import-module-map.md`、採否表 `docs/as-is/findings/order-import.md`、観察ログ `docs/as-is/observations.md`
++
++## Context
++
++- 今は、同じ `external_key` のグループで同じ商品コードが2回目に現れると、`orderImport.duplicateProduct` の例外を投げる（F-003）。受注を保存する前に検証するので、そのグループの受注は作られない（F-002）。
++- `samples/orders-rejections.csv` を取り込むと、`CSV-ORDER-DUPLICATE` は `REJECTED`、受注は0件、プロセスの終了コードは 3 だった。メッセージは `... line 6: Product occurs more than once: P001` で、重複した行の番号（データの5行目と6行目）は入っていない [[runtime:OBS-001]]
++- `line 6` はグループの最初の物理行で、重複が現れた行ではない（F-004 の Reason。1-4 の読み直しで確かめた）。
++- この挙動は特性テストで固定してある。メッセージの文言は固定していない [[test:tests/characterization/order-import.characterization.test.mjs#CHAR-ORD-001]]
++- 重複を合算せずにグループ全体を却下する業務上の理由と、却下のメッセージを照合している運用があるかは、わかっていない（F-006。As-Is 文書の U-1、U-2）。
++
++## Options
++
++| Option | Benefits | Costs and risks | Affected facts and unknowns | Behavior changes |
++|---|---|---|---|---|
++| Retain：今のまま（グループ全体を却下し、メッセージは商品コードだけ） | 変更がなく、取引先と運用への影響がない | 取引先は、どの行を直せばよいかをメッセージから知ることができない | F-003、OBS-001 | None |
++| グループ全体を却下し、メッセージに重複した行の番号を加える | 直す行がメッセージでわかる。却下の単位と受注の扱いは変わらない | メッセージを照合している運用があれば影響する（U-2）。先頭を変えなければ、影響を小さくできる | F-003、F-004、OBS-001、U-2 | 却下理由のメッセージの末尾が変わる。エラーコード、却下の単位、終了コードは変わらない |
++| 重複した行の数量を合算して取り込む | 取引先は CSV を直さなくてよい | 合算してよいかという業務上の判断が要る（U-1）。受け付ける注文が変わる | F-003、U-1、CHAR-ORD-001 | 重複のあるグループでも受注が作られる |
++| 2行目以降だけを却下し、最初の行で受注を作る | 注文の一部は先に進む | 却下の単位が行に変わり、取引先の運用と再送の手順に影響する | F-003、F-004、U-1、CHAR-ORD-001 | 重複のあるグループで、一部の行だけの受注が作られる |
++
++## Characterization tests
++
++- Must stay green: CHAR-ORD-001、CHAR-ORD-002
++- Would need an approved change: CHAR-ORD-001（数量を合算する案と、2行目以降だけを却下する案では、受注が作られるため）
++
++## Decision
++
++<!-- Human only. Copilot must not fill this section. -->
++
++重複した商品を含むグループは、これまでどおりグループ全体を却下する（行の合算や、2行目だけの却下はしない）。却下理由のメッセージに、その商品が現れた入力の行番号をすべて含める。
++
++- 守ること：エラーコード `orderImport.duplicateProduct` は変えない。メッセージの先頭 `Product occurs more than once: <商品コード>` は変えない（監視や運用の手順が先頭で照合している可能性があるため。実際に照合している箇所があるかは確かめていない）。
++- 形式：`Product occurs more than once: P001 (source_rows=5,6)`。`source_rows` は既存の `describeSource()` の表記に合わせた。
++
++## Rationale
++
++<!-- Human only. -->
++
++取引先が CSV を直すときに、どの行を直せばよいかわからないという問い合わせがある（ISSUE-001 の想定）。却下の単位を変えると、既存の取引先の運用と CHAR-ORD-001 に影響する。
++
++## Decided by / Date
++
++<!-- Human only. -->
++
++講師（追いつき用の例。配布物「ACC-001：To-Be 受け入れテストの仕様」の想定の決定を使った）、2026-11-06
+\ No newline at end of file
+diff --git a/docs/as-is/findings/order-import.md b/docs/as-is/findings/order-import.md
+new file mode 100644
+index 0000000..e0ec66a
+--- /dev/null
++++ b/docs/as-is/findings/order-import.md
+@@ -0,0 +1,19 @@
++<!-- code-to-doc-findings
++{
++  "schemaVersion": 1,
++  "scope": "受注 CSV の取り込み（バッチの入口 import-orders から取り込みサービスまで。画面は対象外）",
++  "sourceCommit": "b5b25103b087a6cdde04ca02aeab5c0ddcffe481"
++}
++-->
++# Findings: 受注 CSV の取り込み
++
++Agents add rows with Decision `pending`. Only people fill Decision (`adopted` or `rejected`), Reason and Decided by.
++
++| ID | Claim | Evidence | Type | Decision | Reason | Decided by |
++|---|---|---|---|---|---|---|
++| F-001 | `import-orders` は、同じ `external_key` が続く行を1つのグループとして読み、グループごとに `OrderImportService.importDraft()` で処理する | [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/BatchOrchestrator.java#L68-L79]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderCsv.java#L43-L51]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRowService.java#L61]] | fact | adopted | 引用先の68〜79行目と、`OrderCsv` の43〜51行目を開き、主張と合うことを確かめた | 講師（追いつき用の例） |
++| F-002 | `importDraft()` は、受注を保存する前にグループを `validate()` で検証する。例外になると、受注の保存（`saveDraft`）には進まない | [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/OrderImportService.java#L30-L35]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/OrderImportService.java#L64-L72]] | fact | adopted | 34行目の `validate()` が、64行目の `saveDraft` より前にあることを確かめた | 講師（追いつき用の例） |
++| F-003 | 同じ `external_key` のグループで、同じ商品コードが2回目に現れると `orderImport.duplicateProduct` の例外を投げる | [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderGroup.java#L81-L83]] | fact | adopted | 引用先の81〜83行目を開き、主張と合うことを確かめた | 講師（追いつき用の例） |
++| F-004 | 検証の例外は、そのグループの結果として `REJECTED` で記録される。記録するメッセージは、グループの範囲の説明のあとに `line <行番号>: <例外のメッセージ>` が続く | [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/BatchOrchestrator.java#L136-L149]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRunService.java#L80]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRunService.java#L171]] | fact | adopted | 147〜148行目と、`BatchRunService` の80行目・171行目を開き、主張と合うことを確かめた。1-4：reviewer の指摘を採った。`line` の番号はグループの最初の物理行（`RowTask` の28〜31行目）で、重複が現れた行ではない。OBS-001 でも `line 6` で、2回目の `P001` は物理行7にある | 講師（追いつき用の例） |
++| F-005 | 却下が1件でもあると、実行の状態は `PARTIAL`、終了コードは 3 になる | [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRunService.java#L54-L55]] | fact | adopted | 引用先の54〜55行目を開き、主張と合うことを確かめた | 講師（追いつき用の例） |
++| F-006 | 重複した商品を合算せずグループ全体を却下する業務上の理由と、却下のメッセージを照合している運用（手順や監視）があるかは、コードからはわからない。次：業務と運用の担当者に聞く | — | unknown | adopted | 人に聞く Unknown として残す。重複の扱いを決めるときに要る | 講師（追いつき用の例） |
+diff --git a/docs/as-is/observations.md b/docs/as-is/observations.md
+index e3427d0..e18eab5 100644
+--- a/docs/as-is/observations.md
++++ b/docs/as-is/observations.md
+@@ -4,4 +4,4 @@ Record what you saw when running the legacy application. One row per observation
+ 
+ | ID | When | Environment | Steps | Observed result | Artifact |
+ |---|---|---|---|---|---|
+-| OBS-001 | {{YYYY-MM-DD HH:MM}} | {{ENVIRONMENT_AND_DATA}} | {{STEPS}} | {{OBSERVED_RESULT}} | {{SCREENSHOT_OR_FILE}} |
++| OBS-001 | 2026-11-06 15:38 | 講師の試走（WSL 2 の Docker。compose の構成はラボと同じ）。観察用のデータベースを作り直した直後。入力は `samples/orders-rejections.csv` | `sh scripts/observe-import.sh samples/orders-rejections.csv` | `CSV-ORDER-DUPLICATE`：result=REJECTED、code=`orderImport.duplicateProduct`、source_rows=5..6、message=`external_key=CSV-ORDER-DUPLICATE; source_rows=5..6; source_lines=6..7; line 6: Product occurs more than once: P001`、この external_key の受注は0件。プロセスの終了コードは 3（`status=PARTIAL total=4 success=1 rejected=3`） | ターミナルの出力 |
+diff --git a/docs/as-is/order-import-module-map.md b/docs/as-is/order-import-module-map.md
+new file mode 100644
+index 0000000..50e2d7d
+--- /dev/null
++++ b/docs/as-is/order-import-module-map.md
+@@ -0,0 +1,83 @@
++---
++owner: "講師（追いつき用の例）"  # person or team responsible for this document (people fill it)
++sourceRevision: "b5b25103b087a6cdde04ca02aeab5c0ddcffe481"  # commit the evidence was last checked against (people fill it at review)
++reviewedAt: "2026-11-06"  # YYYY-MM-DD of the last human review
++reviewBy: "2027-02-06"  # YYYY-MM-DD by which people re-read it, even without drift
++---
++<!-- code-to-doc-artifact
++{
++  "schemaVersion": 1,
++  "kind": "module-map",
++  "scope": "受注 CSV の取り込み（バッチの入口 import-orders から取り込みサービスまで。画面は対象外）",
++  "status": "draft"
++}
++-->
++# 受注 CSV の取り込み：モジュールマップ
++
++## Scope
++
++バッチのコマンド `import-orders` で受注 CSV を取り込む処理を、バッチの入口から取り込みサービスまで扱う。画面（`wholesale-web`）と、受注を保存したあとの処理は扱わない。読む人は、取り込みのルールを変える開発者とレビュアー。根拠には、採否表 `docs/as-is/findings/order-import.md` で `adopted` の行だけを使った。
++
++## Modules and responsibilities
++
++- `BatchOrchestrator`：`import-orders` では、CSV をグループに分けて読み、グループごとに1件ずつ処理する（F-001） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/BatchOrchestrator.java#L68-L79]]
++- `OrderCsv`：同じ `external_key` が続く行を、1つの `OrderGroup` にまとめる（F-001） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderCsv.java#L43-L51]]
++- `OrderImportService`：受注を保存する前に、グループを `validate()` で検証する。例外になると、受注の保存には進まない（F-002） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/OrderImportService.java#L30-L35]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/OrderImportService.java#L64-L72]]
++- `OrderGroup`：同じ `external_key` のグループで、同じ商品コードが2回目に現れると `orderImport.duplicateProduct` の例外を投げる（F-003） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderGroup.java#L81-L83]] [[runtime:OBS-001]] [[test:tests/characterization/order-import.characterization.test.mjs#CHAR-ORD-001]]
++- `BatchRunService`：検証の例外を、そのグループの結果 `REJECTED` として記録する。却下が1件でもあると、実行を `PARTIAL`、終了コードを 3 にする（F-004、F-005） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRunService.java#L80]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRunService.java#L54-L55]]
++
++## Dependencies
++
++```mermaid
++flowchart LR
++  BatchOrchestrator --> OrderCsv
++  OrderCsv --> OrderGroup
++  BatchOrchestrator --> BatchRowService
++  BatchRowService --> OrderImportService
++  OrderImportService --> OrderGroup
++  BatchOrchestrator --> BatchRunService
++```
++
++- `BatchOrchestrator` は `OrderCsv` からグループを読み、`BatchRowService` を通して `OrderImportService.importDraft()` に渡す（F-001） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/BatchOrchestrator.java#L68-L79]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRowService.java#L61]]
++- `OrderImportService` は `OrderGroup.validate()` を呼ぶ（F-002） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/OrderImportService.java#L30-L35]]
++- 検証の例外は `BatchOrchestrator` が受け取り、`BatchRunService` に記録させる（F-004） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/BatchOrchestrator.java#L136-L149]]
++
++## Data flow
++
++```mermaid
++sequenceDiagram
++  participant User as 実行する人
++  participant Batch as BatchOrchestrator
++  participant Service as OrderImportService
++  participant Group as OrderGroup
++  participant Run as BatchRunService
++  User->>Batch: import-orders --file orders-rejections.csv
++  Batch->>Service: importDraft（グループ）
++  Service->>Group: validate()
++  Group-->>Service: orderImport.duplicateProduct の例外
++  Service-->>Batch: 例外（受注は保存しない）
++  Batch->>Run: recordRejected（REJECTED）
++  Batch->>Run: recordComplete
++  Run-->>User: status=PARTIAL、終了コード 3
++```
++
++- 重複した商品のグループでは、`validate()` が例外を投げ、受注の保存には進まない（F-002、F-003） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderGroup.java#L81-L83]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/OrderImportService.java#L30-L35]] [[runtime:OBS-001]] [[test:tests/characterization/order-import.characterization.test.mjs#CHAR-ORD-001]]
++- 例外はグループの結果 `REJECTED` として記録され、実行は `PARTIAL`、終了コードは 3 になる（F-004、F-005） [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/BatchOrchestrator.java#L136-L149]] [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRunService.java#L54-L55]]
++
++## Entry points
++
++| Entry point | Type | Evidence |
++|---|---|---|
++| `import-orders` | batch | [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/BatchOrchestrator.java#L68-L79]] |
++
++## Evidence
++
++| Claim | Evidence |
++|---|---|
++| F-003 同じ商品コードが2回目に現れると `orderImport.duplicateProduct` の例外を投げる | [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderGroup.java#L81-L83]] [[runtime:OBS-001]] [[test:tests/characterization/order-import.characterization.test.mjs#CHAR-ORD-001]] |
++| F-005 却下が1件でもあると `PARTIAL`、終了コード 3 | [[source:wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/service/BatchRunService.java#L54-L55]] |
++
++## Unknowns
++
++- U-1: 重複した商品を合算せず、グループ全体を却下する業務上の理由（F-006） (next read: 業務の担当者に聞く)
++- U-2: 却下のメッセージ（`Product occurs more than once: ...`）を照合している運用の手順や監視があるか（F-006） (next read: 運用の担当者に聞き、運用手順書と監視の設定を読む)
+\ No newline at end of file
+diff --git a/tests/characterization/order-import.characterization.test.mjs b/tests/characterization/order-import.characterization.test.mjs
+index bba31c2..bb6570a 100644
+--- a/tests/characterization/order-import.characterization.test.mjs
++++ b/tests/characterization/order-import.characterization.test.mjs
+@@ -29,7 +29,13 @@ test('CHAR-ORD-002 a group whose customer_code differs between its rows is rejec
+   // The message wording is not pinned: only the code, the rows, the missing order and the exit code are.
+ });
+ 
+-// 2-1: 重複した商品のグループ（CSV-ORDER-DUPLICATE）の結果を固定するテストを、この下に足す。
+-//      テスト名は 2-1 の指示どおりの ID で始める。上の例と同じく、メッセージの文言は固定しない。
+-//      テストを足したら、次の todo の行は消してよい。
+-test.todo('2-1: duplicate product group (CSV-ORDER-DUPLICATE) is not pinned yet');
++// 2-1: the duplicate product group. Pins the code, the rows, the missing order and the exit code seen in OBS-001.
++test('CHAR-ORD-001 a group that lists the same product twice is rejected as a whole', () => {
++  const row = rowFor(result, 'CSV-ORDER-DUPLICATE');
++  assert.equal(row.result, 'REJECTED');
++  assert.equal(row.code, 'orderImport.duplicateProduct');
++  assert.equal(row.sourceRows, '5..6'); // one result covers both data rows of the group
++  assert.equal(ordersCreatedFor(result, 'CSV-ORDER-DUPLICATE'), 0);
++  assert.equal(result.exitCode, 3);
++  // The message wording is not pinned: a decision may change it later (ACC-001 checks the message).
++});
+
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: shinyay <shinyay@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 15:45:14 +0900
+Subject: [PATCH 2/2] Extract the header consistency check from
+ OrderGroup.validate()
+
+Behaviour-preserving refactoring: the header check moves to
+requireSameHeader(), which validate() calls at the same place, so the
+checks still run in the same order.
+
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
+---
+ .../co/tsubame/wholesale/batch/OrderGroup.java  | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderGroup.java b/wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderGroup.java
+index 3b9835e..cae0dce 100644
+--- a/wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderGroup.java
++++ b/wholesale-batch/src/main/java/jp/co/tsubame/wholesale/batch/OrderGroup.java
+@@ -72,12 +72,7 @@ public final class OrderGroup {
+         List<String> first = records.get(0);
+         for (List<String> row : records) {
+             ImportFields.count(row, ImportFields.ORDERS.length);
+-            for (int i = 0; i < row.size(); i++) {
+-                if (i != 7 && i != 8 && !first.get(i).equals(row.get(i))) {
+-                    throw new BusinessException("orderImport.headerConflict",
+-                            "Inconsistent " + ImportFields.ORDERS[i] + " within external_key=" + key);
+-                }
+-            }
++            requireSameHeader(first, row);
+             if (!products.add(row.get(7))) {
+                 throw new BusinessException("orderImport.duplicateProduct", "Product occurs more than once: " + row.get(7));
+             }
+@@ -89,6 +84,16 @@ public final class OrderGroup {
+         Dates.parse(first.get(4));
+     }
+ 
++    /** Every column except product_code (7) and quantity (8) must match the first row of the group. */
++    private void requireSameHeader(List<String> first, List<String> row) {
++        for (int i = 0; i < row.size(); i++) {
++            if (i != 7 && i != 8 && !first.get(i).equals(row.get(i))) {
++                throw new BusinessException("orderImport.headerConflict",
++                        "Inconsistent " + ImportFields.ORDERS[i] + " within external_key=" + key);
++            }
++        }
++    }
++
+     public String canonicalHash() {
+         validate();
+         List<String> payload = new ArrayList<String>();
